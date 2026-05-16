@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>花朵三消原型 - 视觉增强版</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 20px;
+        }
+
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(3, 110px);
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .vase {
+            width: 110px;
+            height: 155px;
+            background-color: #ffffff;
+            border: 3px solid #ccc;
+            border-radius: 10px 10px 30px 30px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            padding-bottom: 10px;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: border-color 0.2s, background-color 0.2s;
+            gap: 5px;
+        }
+
+        /* 有被选中花朵的花瓶高亮 */
+        .vase.has-selection {
+            border-color: #ff6b6b;
+            background-color: #fff8f8;
+        }
+
+        /* 花朵基础样式 */
+        .flower {
+            width: 70px;
+            height: 32px;
+            border-radius: 16px;
+            box-shadow: inset 0 -3px rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            color: white;
+            font-weight: bold;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            z-index: 1;
+            cursor: pointer;
+        }
+
+        /* 被选中的花朵：浮起 + 放大 */
+        .flower.selected-flower {
+            transform: translateY(-8px) scale(1.12);
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35), inset 0 -3px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            outline: 3px solid white;
+            outline-offset: 1px;
+        }
+
+        /* 空槽：虚线占位，可点击放入 */
+        .flower.empty-slot {
+            background-color: transparent;
+            box-shadow: none;
+            border: 2px dashed #ddd;
+            cursor: default;
+        }
+
+        /* 当有选中的花时，空槽变成可放入目标 */
+        .flower.empty-slot.droppable {
+            border-color: #b2bec3;
+            background-color: #f9f9f9;
+            cursor: pointer;
+        }
+
+        .flower.empty-slot.droppable:hover {
+            border-color: #74b9ff;
+            background-color: #ebf4ff;
+        }
+
+        /* 花朵 hover 效果 */
+        .flower:not(.empty-slot):hover {
+            transform: translateY(-4px) scale(1.05);
+            box-shadow: 0 5px 12px rgba(0, 0, 0, 0.25), inset 0 -3px rgba(0, 0, 0, 0.2);
+        }
+
+        .flower.selected-flower:hover {
+            transform: translateY(-8px) scale(1.12);
+        }
+
+        /* 预览/状态区 */
+        .status-bar {
+            position: absolute;
+            top: -28px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #555;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+
+        .refresh-count {
+            font-weight: bold;
+            color: #d63031;
+        }
+
+        .shadow-preview {
+            display: flex;
+            gap: 2px;
+        }
+
+        .shadow-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            opacity: 0.5;
+        }
+
+        /* 界面UI */
+        #ui {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #0984e3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #74b9ff;
+        }
+
+        /* 提示文字 */
+        #hint {
+            font-size: 13px;
+            color: #888;
+            margin-top: 6px;
+            min-height: 20px;
+            transition: color 0.2s;
+        }
+
+        #hint.active {
+            color: #e17055;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui">
+        <h2>🌸 花朵三消 - 视觉增强版 🌸</h2>
+        <p>点击一朵花选中，再点击目标花瓶中的空槽放入。</p>
+        <div id="hint">等待操作...</div>
+        <button onclick="initGame()">重新开始 (Reset)</button>
+    </div>
+
+    <div id="game-board"></div>
+
+    <script>
+        const VASE_COUNT = 9;
+        const REFRESH_COUNT = 7;
+        const CAPACITY = 3;
+        const FLOWER_TYPES = ['#ff7675', '#74b9ff', '#55efc4', '#ffeaa7', '#a29bfe', '#fdcb6e'];
+
+        let vases = [];
+        // 记录当前被选中的花：{ vaseIndex, slotIndex }，null 表示没有选中
+        let selection = null;
+
+        function initGame() {
+            vases = [];
+            selection = null;
+
+            let totalFlowers = VASE_COUNT * (REFRESH_COUNT + 1) * 2;
+            totalFlowers = Math.floor(totalFlowers / 3) * 3;
+            let pool = [];
+            for (let i = 0; i < totalFlowers; i++) {
+                pool.push(FLOWER_TYPES[i % FLOWER_TYPES.length]);
+            }
+            pool.sort(() => Math.random() - 0.5);
+
+            for (let i = 0; i < VASE_COUNT; i++) {
+                // 每个花瓶有固定 3 个槽位，null 表示空
+                let vase = { slots: [null, null, null], hidden: [], refreshLeft: REFRESH_COUNT };
+
+                // 第一批可见花
+                let batchSize = Math.floor(Math.random() * 3) + 1;
+                let firstBatch = [];
+                for (let s = 0; s < batchSize; s++) {
+                    if (pool.length > 0) firstBatch.push(pool.pop());
+                }
+                // 避免第一批就全部相同
+                if (firstBatch.length === 3 &&
+                    firstBatch[0] === firstBatch[1] &&
+                    firstBatch[1] === firstBatch[2] &&
+                    pool.length > 0) {
+                    firstBatch[2] = pool.pop();
+                }
+                // 将第一批花放入槽位（从槽 0 开始顺序填入）
+                for (let s = 0; s < CAPACITY; s++) {
+                    vase.slots[s] = s < firstBatch.length ? firstBatch[s] : null;
+                }
+
+                // 剩余隐藏批次
+                for (let b = 1; b <= REFRESH_COUNT; b++) {
+                    let hiddenSize = Math.floor(Math.random() * 3) + 1;
+                    let batch = [];
+                    for (let s = 0; s < hiddenSize; s++) {
+                        if (pool.length > 0) batch.push(pool.pop());
+                    }
+                    if (batch.length === 3 &&
+                        batch[0] === batch[1] &&
+                        batch[1] === batch[2] &&
+                        pool.length > 0) {
+                        batch[2] = pool.pop();
+                    }
+                    vase.hidden.push(batch);
+                }
+
+                vases.push(vase);
+            }
+            setHint('点击一朵花来选中它');
+            render();
+        }
+
+        /**
+         * 点击某个槽位时的处理。
+         * - 槽位有花 → 选中/切换选中
+         * - 槽位为空且当前有选中的花 → 将花移入该空槽
+         */
+        function handleSlotClick(vaseIndex, slotIndex) {
+            const clickedVase = vases[vaseIndex];
+            const clickedSlot = clickedVase.slots[slotIndex];
+
+            if (selection === null) {
+                // 当前没有选中任何花
+                if (clickedSlot !== null) {
+                    // 点击了一朵花 → 选中它
+                    selection = { vaseIndex, slotIndex };
+                    setHint(`已选中花朵，点击目标花瓶的空槽放入`);
+                }
+                // 点击空槽且没有选中 → 无效，忽略
+            } else {
+                // 当前已有选中的花
+                if (selection.vaseIndex === vaseIndex && selection.slotIndex === slotIndex) {
+                    // 点击同一朵花 → 取消选中
+                    selection = null;
+                    setHint('已取消选中');
+                } else if (clickedSlot !== null) {
+                    // 点击了另一朵有花的槽 → 切换选中到这朵花
+                    selection = { vaseIndex, slotIndex };
+                    setHint(`切换选中，点击目标花瓶的空槽放入`);
+                } else {
+                    // 点击了空槽 → 将选中的花移动过来
+                    const sourceVase = vases[selection.vaseIndex];
+                    const flower = sourceVase.slots[selection.slotIndex];
+
+                    sourceVase.slots[selection.slotIndex] = null;
+                    clickedVase.slots[slotIndex] = flower;
+
+                    selection = null;
+
+                    checkMatch(clickedVase);
+                    checkRefresh(sourceVase);
+                    checkRefresh(clickedVase);
+                    setHint('点击一朵花来选中它');
+                }
+            }
+
+            render();
+            setTimeout(checkWin, 300);
+        }
+
+        /** 三消检测：三个槽位全部非空且颜色相同 */
+        function checkMatch(vase) {
+            const s = vase.slots;
+            if (s[0] !== null && s[0] === s[1] && s[1] === s[2]) {
+                vase.slots = [null, null, null];
+                checkRefresh(vase);
+            }
+        }
+
+        /** 补充检测：花瓶全空时，从隐藏队列取下一批 */
+        function checkRefresh(vase) {
+            const isEmpty = vase.slots.every(s => s === null);
+            if (isEmpty && vase.refreshLeft > 0 && vase.hidden.length > 0) {
+                const nextBatch = vase.hidden.shift();
+                vase.slots = [null, null, null];
+                for (let i = 0; i < nextBatch.length; i++) {
+                    vase.slots[i] = nextBatch[i];
+                }
+                vase.refreshLeft--;
+            }
+        }
+
+        function checkWin() {
+            const isWin = vases.every(v => v.slots.every(s => s === null) && v.refreshLeft === 0);
+            if (isWin) alert('🎉 恭喜你，通关了！所有花瓶已清空！');
+        }
+
+        function setHint(msg) {
+            const el = document.getElementById('hint');
+            el.textContent = msg;
+            el.className = selection !== null ? 'active' : '';
+        }
+
+        function render() {
+            const board = document.getElementById('game-board');
+            board.innerHTML = '';
+            const hasSelection = selection !== null;
+
+            vases.forEach((vase, vaseIndex) => {
+                const vaseDiv = document.createElement('div');
+                // 当该花瓶有被选中的花时，高亮整个花瓶
+                const thisVaseSelected = hasSelection && selection.vaseIndex === vaseIndex;
+                vaseDiv.className = 'vase' + (thisVaseSelected ? ' has-selection' : '');
+
+                // 状态栏（剩余隐藏批次数 + 预览）
+                let statusBar = `<div class="status-bar">`;
+                if (vase.refreshLeft > 0) {
+                    statusBar += `<span class="refresh-count">${vase.refreshLeft}</span>`;
+                    if (vase.hidden.length > 0) {
+                        let previewDots = vase.hidden[0]
+                            .map(color => `<div class="shadow-dot" style="background-color: ${color}"></div>`)
+                            .join('');
+                        statusBar += `<div class="shadow-preview">${previewDots}</div>`;
+                    }
+                } else {
+                    statusBar += `<span style="color:#aaa">空</span>`;
+                }
+                statusBar += `</div>`;
+                vaseDiv.innerHTML += statusBar;
+
+                // 渲染 3 个固定槽位
+                for (let slotIndex = 0; slotIndex < CAPACITY; slotIndex++) {
+                    const flowerColor = vase.slots[slotIndex];
+                    const slotDiv = document.createElement('div');
+
+                    if (flowerColor !== null) {
+                        // 有花的槽位
+                        let cls = 'flower';
+                        if (hasSelection && selection.vaseIndex === vaseIndex && selection.slotIndex === slotIndex) {
+                            cls += ' selected-flower';
+                        }
+                        slotDiv.className = cls;
+                        slotDiv.style.backgroundColor = flowerColor;
+                        slotDiv.onclick = () => handleSlotClick(vaseIndex, slotIndex);
+                    } else {
+                        // 空槽位
+                        // 当有选中的花时，空槽变为可放入目标（加 droppable 类 + 可点击）
+                        let cls = 'flower empty-slot';
+                        if (hasSelection) {
+                            cls += ' droppable';
+                            slotDiv.onclick = () => handleSlotClick(vaseIndex, slotIndex);
+                        }
+                        slotDiv.className = cls;
+                    }
+
+                    vaseDiv.appendChild(slotDiv);
+                }
+
+                board.appendChild(vaseDiv);
+            });
+        }
+
+        initGame();
+    </script>
+</body>
+
+</html>

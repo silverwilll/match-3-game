@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>插花禅心 · 拖拽原型 v0.2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #2a1810;
+    min-height: 100vh;
+    display: flex; justify-content: center;
+    overflow: hidden;
+    touch-action: none;
+  }
+  #app {
+    width: 100%; max-width: 420px;
+    min-height: 100vh; height: 100vh;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(120,90,50,0.6), transparent 60%),
+      linear-gradient(180deg, #d9b890 0%, #b5895a 30%, #a07248 70%, #8b5e3c 100%);
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+
+  /* ============ TOP HUD ============ */
+  .hud {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 10px 6px;
+  }
+  .pause-btn {
+    background: rgba(0,0,0,0.5); color: white; border-radius: 99px;
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 14px;
+  }
+  .chip {
+    background: rgba(0,0,0,0.5); color: white; border-radius: 99px;
+    padding: 6px 12px; font-weight: 700; font-size: 13px;
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .level-chip { padding: 4px 12px; }
+  .level-chip .level-text { font-size: 12px; }
+  .level-progress {
+    height: 5px; background: rgba(255,255,255,0.2); border-radius: 4px;
+    width: 64px; overflow: hidden; margin-top: 3px;
+  }
+  .level-progress > div { height: 100%; background: linear-gradient(90deg, #ffd86b, #ff7a7a); width: 0%; transition: width 0.4s; }
+  .timer.warn { background: #d23737; animation: pulse 0.6s infinite alternate; }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+
+  /* ============ SHELVES ============ */
+  .shelf-area {
+    flex: 1; padding: 12px 6px 6px; display: flex; flex-direction: column;
+    justify-content: flex-start; gap: 28px; overflow: visible;
+  }
+  .shelf {
+    position: relative;
+    display: flex; justify-content: space-around; align-items: flex-end;
+    padding: 0 6px;
+    min-height: 105px;
+  }
+  .shelf-board {
+    position: absolute; bottom: -8px; left: 0; right: 0;
+    height: 14px;
+    background: linear-gradient(180deg, #d2a677 0%, #a47644 60%, #7a4f25 100%);
+    border-radius: 3px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.35), inset 0 1px 2px rgba(255,255,255,0.2);
+  }
+
+  /* ============ VASE ============ */
+  .vase {
+    position: relative; cursor: pointer;
+    width: 92px; flex: 0 0 auto;
+    display: flex; flex-direction: column; align-items: center;
+    z-index: 2;
+    transition: transform 0.15s;
+  }
+  .vase.drop-target .vase-body { box-shadow: 0 0 0 3px #ffd86b, inset -4px -2px 8px rgba(0,0,0,0.25), 0 4px 6px rgba(0,0,0,0.3); }
+  .vase.drop-target { transform: translateY(-4px); }
+  .vase.invalid-target { opacity: 0.4; }
+  .vase.matching { animation: vaseMatch 0.55s; }
+  @keyframes vaseMatch {
+    0%   { transform: scale(1); }
+    25%  { transform: scale(1.08); filter: brightness(1.6); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+  .vase-body {
+    width: 60px; height: 72px; position: relative;
+    background: radial-gradient(ellipse at 30% 30%, #c8e3eb 0%, #82b6c4 40%, #4f8696 90%);
+    border-radius: 50% 50% 35% 35% / 30% 30% 60% 60%;
+    box-shadow: inset -4px -2px 8px rgba(0,0,0,0.25), inset 4px 2px 6px rgba(255,255,255,0.15), 0 4px 6px rgba(0,0,0,0.3);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 800; font-size: 22px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5), 0 2px 0 #2c5d6b;
+  }
+  .vase-body.depleted::after { content: ''; }
+  .vase-body.depleted { opacity: 0.85; }
+
+  /* Two layers above vase body: shadow (back) + flowers (front) */
+  .vase-layers {
+    position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%);
+    width: 100px; height: 60px;
+    pointer-events: none;
+  }
+  .layer {
+    position: absolute; inset: 0;
+    display: flex; gap: 0;
+    align-items: flex-end; justify-content: center;
+  }
+  .layer.shadow {
+    z-index: 1;
+    opacity: 0.62;
+    transform: translateY(-10px) scale(0.85);
+  }
+  .layer.flowers { z-index: 2; }
+
+  /* ============ FLOWER ============ */
+  .flower {
+    width: 30px; height: 52px;
+    display: flex; align-items: flex-end; justify-content: center;
+    position: relative;
+    pointer-events: auto;
+    transition: transform 0.18s;
+  }
+  .flower .head {
+    width: 26px; height: 26px; border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.35), inset -3px -2px 4px rgba(0,0,0,0.2), inset 2px 2px 4px rgba(255,255,255,0.3);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 700; font-size: 14px;
+    position: relative; z-index: 2;
+  }
+  .flower .stem {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 3px; height: 30px;
+    background: linear-gradient(180deg, #5a8a3a, #2f5018);
+    border-radius: 2px;
+    z-index: 1;
+  }
+  .flower.angle-left  { transform: rotate(-15deg) translateY(-2px); transform-origin: 50% 100%; }
+  .flower.angle-right { transform: rotate(15deg) translateY(-2px); transform-origin: 50% 100%; }
+  .flower.angle-center { transform: translateY(-4px); }
+
+  /* shadow flowers — silhouettes */
+  .flower.is-shadow .head {
+    background: #1a1a1a !important;
+    box-shadow: none;
+    color: transparent;
+  }
+  .flower.is-shadow .head span { visibility: hidden; }
+  .flower.is-shadow .stem { background: #1a1a1a; opacity: 0.7; }
+
+  /* dragging */
+  .flower.draggable { cursor: grab; pointer-events: auto; }
+  .flower.draggable:active { cursor: grabbing; }
+  .flower.dragging-source { visibility: hidden; }
+  .dragging-ghost {
+    position: fixed; pointer-events: none; z-index: 9999;
+    width: 30px; height: 52px; transform-origin: 50% 100%;
+    transition: none;
+  }
+
+  /* ============ TOOLBAR ============ */
+  .toolbar {
+    display: flex; justify-content: center;
+    padding: 6px 14px 14px;
+    gap: 8px;
+  }
+  .tool-btn {
+    flex: 1; max-width: 110px;
+    background: linear-gradient(180deg, #b6def7, #6db7ec 55%, #4593c9);
+    border-radius: 18px; padding: 8px 4px 6px;
+    box-shadow: 0 4px 0 #2f6996, 0 5px 8px rgba(0,0,0,0.3);
+    color: white; text-align: center;
+    cursor: pointer; position: relative;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .tool-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #2f6996, 0 2px 4px rgba(0,0,0,0.25); }
+  .tool-btn.disabled { opacity: 0.55; filter: grayscale(0.6); cursor: not-allowed; }
+  .tool-icon { font-size: 26px; line-height: 1; margin-bottom: 2px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3)); }
+  .tool-name { font-size: 12px; font-weight: 700; text-shadow: 0 1px 1px rgba(0,0,0,0.25); }
+  .badge {
+    position: absolute; top: -6px; right: -6px;
+    background: #ff4d4d; color: white; border-radius: 99px;
+    min-width: 22px; height: 22px; padding: 0 5px; font-size: 12px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid white;
+  }
+
+  /* ============ COMBO TOAST ============ */
+  .combo-toast {
+    position: absolute; left: 50%; top: 36%; transform: translateX(-50%) scale(0);
+    font-size: 30px; font-weight: 900; color: #ffd700;
+    text-shadow: 0 2px 0 #d27a00, 0 4px 16px rgba(0,0,0,0.6);
+    pointer-events: none;
+    transition: transform 0.32s cubic-bezier(.3,1.7,.6,1);
+    z-index: 50; white-space: nowrap;
+  }
+  .combo-toast.show { transform: translateX(-50%) scale(1) rotate(-6deg); }
+
+  /* ============ DIALOG ============ */
+  .dialog-mask {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.25s;
+  }
+  .dialog-mask.show { opacity: 1; pointer-events: auto; }
+  .dialog {
+    background: linear-gradient(180deg, #fff7e0, #ffd9a8);
+    border-radius: 22px; padding: 24px 22px; text-align: center;
+    width: 82%; max-width: 320px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+    transform: scale(0.7); transition: transform 0.32s cubic-bezier(.3,1.6,.6,1);
+  }
+  .dialog-mask.show .dialog { transform: scale(1); }
+  .dialog h2 { font-size: 28px; color: #d2691e; margin-bottom: 10px; }
+  .dialog p { color: #8a4f24; font-size: 14px; margin-bottom: 16px; line-height: 1.55; white-space: pre-line; }
+  .dialog .reward { font-size: 13px; color: #5a3010; margin-bottom: 14px; }
+  .btn-row { display: flex; gap: 8px; justify-content: center; }
+  .dialog button {
+    background: linear-gradient(180deg, #6ed26e, #3fa843);
+    border: none; color: white; font-size: 16px; font-weight: 700;
+    padding: 11px 22px; border-radius: 99px;
+    cursor: pointer; box-shadow: 0 4px 0 #2c7d30;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  .dialog button:active { transform: translateY(3px); box-shadow: 0 1px 0 #2c7d30; }
+  .dialog button.secondary { background: linear-gradient(180deg,#bababa,#7c7c7c); box-shadow: 0 4px 0 #555; }
+
+  /* ============ PARTICLES ============ */
+  .particle {
+    position: fixed; width: 8px; height: 8px; border-radius: 50%;
+    pointer-events: none; z-index: 998;
+  }
+
+  /* ============ HINT/TUTORIAL ============ */
+  .tip-banner {
+    position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.65); color: #ffd86b;
+    padding: 6px 14px; border-radius: 99px;
+    font-size: 12px; font-weight: 700;
+    pointer-events: none;
+    z-index: 30;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .tip-banner.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <div class="pause-btn" id="btn-pause">⏸</div>
+    <div class="chip level-chip">
+      <div>
+        <div class="level-text">第 <span id="ui-level">1</span> 关</div>
+        <div class="level-progress"><div id="ui-progress"></div></div>
+      </div>
+    </div>
+    <div class="chip timer" id="ui-timer">⏱ 05:00</div>
+    <div class="chip">💎 <span id="ui-score">0</span></div>
+  </div>
+
+  <div class="shelf-area" id="shelf-area"></div>
+
+  <div class="toolbar">
+    <div class="tool-btn" id="tool-wand">
+      <div class="tool-icon">✨</div>
+      <div class="tool-name">魔法棒</div>
+      <div class="badge" id="badge-wand">3</div>
+    </div>
+    <div class="tool-btn" id="tool-pause">
+      <div class="tool-icon">⏱</div>
+      <div class="tool-name">时停</div>
+      <div class="badge" id="badge-pause">3</div>
+    </div>
+    <div class="tool-btn" id="tool-refresh">
+      <div class="tool-icon">🔀</div>
+      <div class="tool-name">刷新</div>
+      <div class="badge" id="badge-refresh">3</div>
+    </div>
+  </div>
+
+  <div class="combo-toast" id="combo-toast"></div>
+  <div class="tip-banner" id="tip">长按花朵拖到其他花瓶</div>
+
+  <div class="dialog-mask" id="dialog">
+    <div class="dialog">
+      <h2 id="dlg-title">胜利！</h2>
+      <p id="dlg-msg"></p>
+      <div class="reward" id="dlg-reward"></div>
+      <div class="btn-row">
+        <button id="dlg-next">下一关</button>
+        <button class="secondary" id="dlg-restart">重玩</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===================================================================
+   插花禅心 · 拖拽原型
+   核心规则：
+   - 每瓶最多 3 朵花 + 黑影预览下一批
+   - 长按拖花到其他瓶；满 3 同款自动消除
+   - 瓶清空且 refreshCount>0 → 自动刷新（1-3 朵），refreshCount-1
+   - refreshCount=0 → 数字消失但瓶仍可接收拖入
+   - 胜：所有瓶 refreshCount=0 且全部空；失：超时或全瓶塞满又无消除
+   =================================================================== */
+
+// ======== Flower palette ========
+const FLOWER_KINDS = [
+  { color:'#e74c3c', symbol:'🌹' },
+  { color:'#3498db', symbol:'💧' },
+  { color:'#f1c40f', symbol:'🌻' },
+  { color:'#e91e63', symbol:'🌸' },
+  { color:'#27ae60', symbol:'🍀' },
+  { color:'#9b59b6', symbol:'🌷' },
+  { color:'#ff8c00', symbol:'🌼' },
+  { color:'#1abc9c', symbol:'🌿' },
+  { color:'#8e44ad', symbol:'🌺' },
+];
+
+// ======== State ========
+const state = {
+  level: 1,
+  flowerKinds: 3,
+  vases: [],                // 长度固定 9
+  score: 0,
+  combo: 0,
+  comboTimerId: null,
+  timeRemaining: 300,
+  timerId: null,
+  _initialTime: 300,
+  isPaused: false,
+  status: 'playing',
+  inventory: { wand: 3, pause: 3, refresh: 3 },
+  matching: false,
+  dragging: null,           // { vaseId, flowerIdx, flower, ghost, sourceEl, startX, startY }
+  totalFlowers: 0,
+  clearedFlowers: 0,
+};
+
+// ======== Utils ========
+function uid() { return 'f' + Math.random().toString(36).slice(2,10); }
+function shuffle(a) {
+  for (let i=a.length-1; i>0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+// ======== Level generation ========
+function generateLevelConfig(n) {
+  const tier = Math.min(Math.floor((n-1)/3), 6);
+  const flowerKinds  = Math.min(3 + tier, FLOWER_KINDS.length);
+  const vaseCount    = 9;                // 固定 3x3
+  const refreshCount = 2 + tier;         // 每瓶刷新次数
+  return {
+    level: n,
+    flowerKinds, vaseCount, refreshCount,
+    vaseCapacity: 3,
+    timeLimit: Math.max(240, 300 - 6*tier),
+  };
+}
+
+/**
+ * 关卡内容生成（v0.2.1，修复版）
+ * 步骤：
+ *   1. 算出 totalBatches = vaseCount * (refreshCount + 1)
+ *   2. 算出 total = totalBatches * 2，向上取到 3*flowerKinds 的倍数（保证每种花数都是 3 的倍数）
+ *   3. 给每个批次随机分配 size ∈ [1,3]，sum(sizes) = total
+ *   4. 把摇匀的 pool 按 size 切片，得到 totalBatches 个批次
+ *   5. 扫描所有批次：若有"单批 3 同款" → 与其它批次的异色花交换
+ *   6. 按顺序切给 9 个花瓶（每瓶取 refreshCount+1 批）
+ */
+function generateAllBatches(cfg) {
+  const batchesPerVase = cfg.refreshCount + 1;
+  const totalBatches   = cfg.vaseCount * batchesPerVase;
+
+  // 总花数
+  let total = totalBatches * 2;
+  const unit = 3 * cfg.flowerKinds;
+  total = Math.ceil(total / unit) * unit;
+
+  // pool
+  const perKind = total / cfg.flowerKinds;
+  const pool = [];
+  for (let k = 0; k < cfg.flowerKinds; k++) {
+    for (let i = 0; i < perKind; i++) pool.push(k);
+  }
+  shuffle(pool);
+
+  // batch sizes
+  const sizes = new Array(totalBatches).fill(1);
+  let rem = total - totalBatches;
+  while (rem > 0) {
+    const i = Math.floor(Math.random() * totalBatches);
+    if (sizes[i] < 3) { sizes[i]++; rem--; }
+  }
+
+  // 切片
+  const batches = [];
+  let p = 0;
+  for (let i = 0; i < totalBatches; i++) {
+    batches.push(pool.slice(p, p + sizes[i]).map(k => ({ id: uid(), kind: k })));
+    p += sizes[i];
+  }
+
+  fixAll3SameBatches(batches);
+  return { batches, batchesPerVase, total };
+}
+
+/** 扫描所有 batch，若有 3 朵全同款的批次，与其它批次的异色花交换 */
+function fixAll3SameBatches(batches) {
+  for (let i = 0; i < batches.length; i++) {
+    const b = batches[i];
+    if (b.length !== 3) continue;
+    if (b[0].kind !== b[1].kind || b[1].kind !== b[2].kind) continue;
+    for (let j = 0; j < batches.length; j++) {
+      if (j === i) continue;
+      const o = batches[j];
+      const idx = o.findIndex(f => f.kind !== b[0].kind);
+      if (idx < 0) continue;
+      [o[idx], b[2]] = [b[2], o[idx]];
+      if (o.length === 3 && o[0].kind === o[1].kind && o[1].kind === o[2].kind) {
+        [o[idx], b[2]] = [b[2], o[idx]];
+        continue;
+      }
+      break;
+    }
+  }
+}
+
+function initLevel(n) {
+  const cfg = generateLevelConfig(n);
+  const { batches: all, batchesPerVase, total } = generateAllBatches(cfg);
+
+  const vases = [];
+  for (let i = 0; i < cfg.vaseCount; i++) {
+    const myBatches = all.slice(i * batchesPerVase, (i + 1) * batchesPerVase);
+    vases.push({
+      id: 'v' + i,
+      flowers: myBatches[0] || [],
+      nextBatch: myBatches[1] || [],
+      queuedBatches: myBatches.slice(2),
+      refreshCount: 0,
+    });
+  }
+  vases.forEach(v => {
+    v.refreshCount = (v.nextBatch.length > 0 ? 1 : 0) + v.queuedBatches.length;
+  });
+  const real = total;
+
+  state.level = n;
+  state.flowerKinds = cfg.flowerKinds;
+  state.vases = vases;
+  state.score = 0;
+  state.combo = 0;
+  state.tray = [];
+  state.totalFlowers = real;
+  state.clearedFlowers = 0;
+  state.timeRemaining = cfg.timeLimit;
+  state._initialTime = cfg.timeLimit;
+  state.status = 'playing';
+  state.isPaused = false;
+  state.matching = false;
+  state.dragging = null;
+
+  document.getElementById('btn-pause').textContent = '⏸';
+  document.getElementById('dialog').classList.remove('show');
+
+  render();
+  startTimer();
+  if (n === 1) showTip('长按花朵拖到别的花瓶 · 3 朵同款消除', 4000);
+}
+
+// ======== Render ========
+function getAngle(idx, total) {
+  if (total === 1) return 'center';
+  if (total === 2) return idx === 0 ? 'left' : 'right';
+  return ['left','center','right'][idx];
+}
+
+function buildFlowerEl(flower, angle, isShadow=false) {
+  const k = FLOWER_KINDS[flower.kind];
+  const wrap = document.createElement('div');
+  wrap.className = 'flower angle-' + angle + (isShadow ? ' is-shadow' : ' draggable');
+  wrap.dataset.flowerId = flower.id;
+  wrap.innerHTML = `
+    <div class="stem"></div>
+    <div class="head" style="background:${k.color}"><span>${k.symbol}</span></div>
+  `;
+  return wrap;
+}
+
+function buildVaseEl(vase) {
+  const el = document.createElement('div');
+  el.className = 'vase';
+  el.dataset.vaseId = vase.id;
+
+  const layers = document.createElement('div');
+  layers.className = 'vase-layers';
+
+  // shadow layer (next batch preview)
+  const shadow = document.createElement('div');
+  shadow.className = 'layer shadow';
+  vase.nextBatch.forEach((f, i) => {
+    shadow.appendChild(buildFlowerEl(f, getAngle(i, vase.nextBatch.length), true));
+  });
+  layers.appendChild(shadow);
+
+  // flowers layer (current visible)
+  const flowers = document.createElement('div');
+  flowers.className = 'layer flowers';
+  vase.flowers.forEach((f, i) => {
+    const fe = buildFlowerEl(f, getAngle(i, vase.flowers.length), false);
+    fe.dataset.flowerIdx = i;
+    attachDragHandlers(fe, vase.id, i);
+    flowers.appendChild(fe);
+  });
+  layers.appendChild(flowers);
+
+  el.appendChild(layers);
+
+  const body = document.createElement('div');
+  body.className = 'vase-body' + (vase.refreshCount === 0 ? ' depleted' : '');
+  body.textContent = vase.refreshCount > 0 ? String(vase.refreshCount) : '';
+  el.appendChild(body);
+
+  return el;
+}
+
+function render() {
+  const area = document.getElementById('shelf-area');
+  area.innerHTML = '';
+  // 9 vases → 3 layer × 3
+  for (let row = 0; row < 3; row++) {
+    const shelf = document.createElement('div');
+    shelf.className = 'shelf';
+    for (let col = 0; col < 3; col++) {
+      const v = state.vases[row*3 + col];
+      if (v) shelf.appendChild(buildVaseEl(v));
+    }
+    const board = document.createElement('div');
+    board.className = 'shelf-board';
+    shelf.appendChild(board);
+    area.appendChild(shelf);
+  }
+  renderHUD();
+  renderInventory();
+}
+
+function rerenderVase(vase) {
+  const oldEl = document.querySelector(`[data-vase-id="${vase.id}"]`);
+  if (oldEl) oldEl.replaceWith(buildVaseEl(vase));
+}
+
+function renderHUD() {
+  document.getElementById('ui-level').textContent = state.level;
+  document.getElementById('ui-score').textContent = state.score;
+  const pct = state.totalFlowers > 0 ? Math.min(100, (state.clearedFlowers / state.totalFlowers) * 100) : 0;
+  document.getElementById('ui-progress').style.width = pct + '%';
+  const t = document.getElementById('ui-timer');
+  const m = Math.floor(state.timeRemaining/60);
+  const s = state.timeRemaining%60;
+  t.innerHTML = '⏱ ' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  if (state.timeRemaining <= 30) t.classList.add('warn'); else t.classList.remove('warn');
+}
+
+function renderInventory() {
+  document.getElementById('badge-wand').textContent = state.inventory.wand;
+  document.getElementById('badge-pause').textContent = state.inventory.pause;
+  document.getElementById('badge-refresh').textContent = state.inventory.refresh;
+  document.getElementById('tool-wand').classList.toggle('disabled', state.inventory.wand <= 0);
+  document.getElementById('tool-pause').classList.toggle('disabled', state.inventory.pause <= 0);
+  document.getElementById('tool-refresh').classList.toggle('disabled', state.inventory.refresh <= 0);
+}
+
+// ======== Drag & drop ========
+function attachDragHandlers(flowerEl, vaseId, flowerIdx) {
+  flowerEl.addEventListener('pointerdown', e => onDragStart(e, vaseId, flowerIdx));
+}
+
+function onDragStart(e, vaseId, flowerIdx) {
+  if (state.status !== 'playing' || state.isPaused || state.matching || state.dragging) return;
+  const vase = state.vases.find(v => v.id === vaseId);
+  if (!vase) return;
+  const flower = vase.flowers[flowerIdx];
+  if (!flower) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+
+  const sourceEl = e.currentTarget;
+  const rect = sourceEl.getBoundingClientRect();
+
+  // Build ghost
+  const ghost = sourceEl.cloneNode(true);
+  ghost.classList.remove('angle-left','angle-right','angle-center');
+  ghost.classList.add('dragging-ghost');
+  ghost.style.left = (rect.left + rect.width/2) + 'px';
+  ghost.style.top = (rect.top + rect.height/2) + 'px';
+  ghost.style.transform = 'translate(-50%,-50%) scale(1.15)';
+  ghost.style.filter = 'drop-shadow(0 8px 12px rgba(0,0,0,0.5))';
+  document.body.appendChild(ghost);
+
+  sourceEl.classList.add('dragging-source');
+
+  state.dragging = { vaseId, flowerIdx, flower, ghost, sourceEl };
+
+  // 标记可放置目标
+  state.vases.forEach(v => {
+    if (v.id === vaseId) return;
+    const vEl = document.querySelector(`[data-vase-id="${v.id}"]`);
+    if (!vEl) return;
+    if (v.flowers.length < 3) vEl.classList.add('drop-target');
+    else vEl.classList.add('invalid-target');
+  });
+
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragEnd);
+  document.addEventListener('pointercancel', onDragEnd);
+}
+
+function onDragMove(e) {
+  if (!state.dragging) return;
+  e.preventDefault();
+  state.dragging.ghost.style.left = e.clientX + 'px';
+  state.dragging.ghost.style.top  = e.clientY + 'px';
+}
+
+function onDragEnd(e) {
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragEnd);
+  document.removeEventListener('pointercancel', onDragEnd);
+
+  if (!state.dragging) return;
+  const d = state.dragging;
+  state.dragging = null;
+
+  // clear highlight
+  document.querySelectorAll('.vase.drop-target, .vase.invalid-target').forEach(el => {
+    el.classList.remove('drop-target', 'invalid-target');
+  });
+
+  d.ghost.style.pointerEvents = 'none';
+  d.ghost.style.display = 'none';
+  const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+  d.ghost.style.display = '';
+
+  const targetVaseEl = targetEl ? targetEl.closest('.vase') : null;
+  const targetVaseId = targetVaseEl ? targetVaseEl.dataset.vaseId : null;
+
+  if (!targetVaseId || targetVaseId === d.vaseId) {
+    return snapBack(d);
+  }
+  const targetVase = state.vases.find(v => v.id === targetVaseId);
+  if (!targetVase || targetVase.flowers.length >= 3) {
+    return snapBack(d);
+  }
+
+  // 合法 drop：动画 ghost 飞到目标，然后更新状态
+  const targetRect = targetVaseEl.getBoundingClientRect();
+  const targetX = targetRect.left + targetRect.width/2;
+  const targetY = targetRect.top + 30;
+  d.ghost.style.transition = 'left 0.22s cubic-bezier(.3,1.4,.6,1), top 0.22s, transform 0.22s';
+  d.ghost.style.left = targetX + 'px';
+  d.ghost.style.top  = targetY + 'px';
+  d.ghost.style.transform = 'translate(-50%,-50%) scale(0.9)';
+
+  setTimeout(() => {
+    d.ghost.remove();
+    completeMove(d.vaseId, d.flowerIdx, targetVaseId);
+  }, 230);
+}
+
+function snapBack(d) {
+  if (!d.sourceEl) { d.ghost.remove(); return; }
+  const rect = d.sourceEl.getBoundingClientRect();
+  d.ghost.style.transition = 'left 0.25s, top 0.25s, transform 0.25s';
+  d.ghost.style.left = (rect.left + rect.width/2) + 'px';
+  d.ghost.style.top  = (rect.top + rect.height/2) + 'px';
+  d.ghost.style.transform = 'translate(-50%,-50%) scale(1)';
+  setTimeout(() => {
+    d.ghost.remove();
+    if (d.sourceEl) d.sourceEl.classList.remove('dragging-source');
+  }, 260);
+}
+
+function completeMove(fromId, flowerIdx, toId) {
+  const from = state.vases.find(v => v.id === fromId);
+  const to   = state.vases.find(v => v.id === toId);
+  if (!from || !to) return;
+  const flower = from.flowers[flowerIdx];
+  if (!flower) return;
+
+  from.flowers.splice(flowerIdx, 1);
+  to.flowers.push(flower);
+
+  rerenderVase(from);
+  rerenderVase(to);
+
+  // 1) 目标瓶检查三同款
+  const matched = to.flowers.length === 3 && to.flowers.every(f => f.kind === to.flowers[0].kind);
+  if (matched) {
+    triggerMatch(to);
+    return; // refresh / source-refresh 由 triggerMatch 内部 chain
+  }
+
+  // 2) 源瓶若空 → 刷新
+  if (from.flowers.length === 0 && from.refreshCount > 0) {
+    setTimeout(() => triggerRefresh(from), 350);
+  }
+
+  setTimeout(() => {
+    checkLockCondition();
+    checkWinCondition();
+  }, 50);
+}
+
+function triggerMatch(vase) {
+  state.matching = true;
+  state.combo++;
+  const gain = 10 * state.combo;
+  state.score += gain;
+  state.clearedFlowers += 3;
+
+  const el = document.querySelector(`[data-vase-id="${vase.id}"]`);
+  if (el) {
+    el.classList.add('matching');
+    burstParticles(el, FLOWER_KINDS[vase.flowers[0].kind].color);
+  }
+  if (state.combo >= 2) showFloatText(`Combo ×${state.combo}!  +${gain}`);
+  else showFloatText(`+${gain}`);
+  clearTimeout(state.comboTimerId);
+  state.comboTimerId = setTimeout(()=>{ state.combo = 0; }, 2200);
+
+  setTimeout(() => {
+    vase.flowers = [];
+    rerenderVase(vase);
+    state.matching = false;
+
+    // 还有刷新次数 → 刷下一批
+    if (vase.refreshCount > 0) {
+      setTimeout(() => triggerRefresh(vase), 200);
+    } else {
+      checkWinCondition();
+      checkLockCondition();
+    }
+    renderHUD();
+  }, 520);
+}
+
+function triggerRefresh(vase) {
+  if (vase.flowers.length > 0) return;
+  if (vase.refreshCount <= 0) return;
+
+  vase.flowers = vase.nextBatch;
+  vase.refreshCount--;
+
+  // 下一批黑影
+  if (vase.queuedBatches.length > 0) {
+    vase.nextBatch = vase.queuedBatches.shift();
+  } else {
+    vase.nextBatch = [];
+  }
+
+  rerenderVase(vase);
+
+  // 罕见：新批次恰好是 3 同款（应该不会，因为我们做了过滤）→ 再消除
+  if (vase.flowers.length === 3 && vase.flowers.every(f => f.kind === vase.flowers[0].kind)) {
+    setTimeout(() => triggerMatch(vase), 350);
+  } else {
+    checkWinCondition();
+    checkLockCondition();
+  }
+}
+
+// ======== Win / Lose ========
+function checkWinCondition() {
+  if (state.status !== 'playing' || state.matching) return;
+  const done = state.vases.every(v => v.flowers.length === 0 && v.refreshCount === 0);
+  if (done) endLevel(true);
+}
+function checkLockCondition() {
+  if (state.status !== 'playing' || state.matching || state.dragging) return;
+  // 任意瓶有 < 3 朵 → 还能继续放
+  const anyFree = state.vases.some(v => v.flowers.length < 3);
+  if (anyFree) return;
+  // 所有瓶满 3 朵 → 检查有没有任意一瓶 3 同款（应该会自动触发，这里兜底）
+  const anyMatch = state.vases.some(v => v.flowers.length === 3 && v.flowers.every(f => f.kind === v.flowers[0].kind));
+  if (anyMatch) return;
+  endLevel(false, '所有花瓶都装满了！\n试试用 🔀 刷新道具打破死锁。');
+}
+function endLevel(won, reason='') {
+  if (state.status !== 'playing') return;
+  state.status = won ? 'won' : 'lost';
+  clearInterval(state.timerId);
+
+  let rewardText = '';
+  if (won) {
+    const pool = ['wand','pause','refresh'];
+    const reward = pool[Math.floor(Math.random()*pool.length)];
+    state.inventory[reward]++;
+    const nameMap = { wand:'魔法棒', pause:'时停', refresh:'刷新' };
+    rewardText = `🎁 奖励：${nameMap[reward]} ×1`;
+    renderInventory();
+  }
+  document.getElementById('dlg-title').textContent = won ? '胜利！🎉' : '失败 😢';
+  document.getElementById('dlg-msg').textContent = won
+    ? `所有花瓶都清空啦！\n得分 ${state.score}　·　用时 ${formatElapsed()}`
+    : (reason || '时间到，挑战失败');
+  document.getElementById('dlg-reward').textContent = rewardText;
+  document.getElementById('dlg-next').textContent = won ? '下一关 →' : '再来一次';
+  document.getElementById('dialog').classList.add('show');
+}
+
+// ======== Timer ========
+function startTimer() {
+  clearInterval(state.timerId);
+  state.timerId = setInterval(() => {
+    if (state.isPaused || state.status !== 'playing') return;
+    state.timeRemaining--;
+    if (state.timeRemaining <= 0) {
+      state.timeRemaining = 0;
+      renderHUD();
+      endLevel(false, '时间到，挑战失败');
+      return;
+    }
+    renderHUD();
+  }, 1000);
+}
+function formatElapsed() {
+  const used = (state._initialTime || 300) - state.timeRemaining;
+  const m = Math.floor(used/60), s = used%60;
+  return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+
+// ======== Toast / Particles / Tip ========
+function showFloatText(text) {
+  const t = document.getElementById('combo-toast');
+  t.textContent = text;
+  t.classList.remove('show');
+  void t.offsetWidth;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 900);
+}
+function showTip(text, dur=3000) {
+  const t = document.getElementById('tip');
+  t.textContent = text;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), dur);
+}
+function burstParticles(target, color) {
+  const rect = target.getBoundingClientRect();
+  const cx = rect.left + rect.width/2;
+  const cy = rect.top + rect.height/2;
+  for (let i = 0; i < 14; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.background = color;
+    p.style.left = cx + 'px';
+    p.style.top  = cy + 'px';
+    document.body.appendChild(p);
+    const angle = (i / 14) * Math.PI * 2 + Math.random()*0.4;
+    const dist = 60 + Math.random()*40;
+    const dx = Math.cos(angle)*dist;
+    const dy = Math.sin(angle)*dist - 12;
+    p.animate([
+      { transform: 'translate(0,0) scale(1)', opacity: 1 },
+      { transform: `translate(${dx}px,${dy}px) scale(0)`, opacity: 0 }
+    ], { duration: 700, easing: 'cubic-bezier(.22,1,.36,1)' });
+    setTimeout(()=> p.remove(), 720);
+  }
+}
+
+// ======== Tools ========
+document.getElementById('tool-wand').addEventListener('click', useWand);
+document.getElementById('tool-pause').addEventListener('click', useTimePause);
+document.getElementById('tool-refresh').addEventListener('click', useRefresh);
+
+function useWand() {
+  if (state.status !== 'playing' || state.isPaused || state.matching) return;
+  if (state.inventory.wand <= 0) return showFloatText('道具不足');
+  const counts = {};
+  state.vases.forEach(v => v.flowers.forEach(f => counts[f.kind] = (counts[f.kind]||0)+1));
+  // 也考虑未来批次？暂时只消除场上当前花朵
+  const candidates = Object.keys(counts).filter(k => counts[k] >= 3);
+  if (candidates.length === 0) return showFloatText('场上没 3 朵同色');
+  candidates.sort((a,b)=>counts[b]-counts[a]);
+  const kind = parseInt(candidates[0]);
+
+  // 从各瓶子里挑 3 朵该 kind 移除
+  let removed = 0;
+  for (const v of state.vases) {
+    for (let i = v.flowers.length-1; i >= 0 && removed < 3; i--) {
+      if (v.flowers[i].kind === kind) {
+        v.flowers.splice(i,1);
+        removed++;
+      }
+    }
+    if (removed >= 3) break;
+  }
+  state.inventory.wand--;
+  state.combo++;
+  const gain = 30 * state.combo;
+  state.score += gain;
+  state.clearedFlowers += 3;
+  showFloatText(`✨ 魔法消除 +${gain}`);
+  // 重渲所有可能被影响的瓶
+  state.vases.forEach(v => {
+    rerenderVase(v);
+    if (v.flowers.length === 0 && v.refreshCount > 0) setTimeout(()=>triggerRefresh(v), 300);
+  });
+  burstParticles(document.querySelector('.shelf-area'), FLOWER_KINDS[kind].color);
+  renderInventory();
+  renderHUD();
+  clearTimeout(state.comboTimerId);
+  state.comboTimerId = setTimeout(()=>{state.combo = 0;}, 2200);
+  setTimeout(checkWinCondition, 400);
+}
+
+function useTimePause() {
+  if (state.status !== 'playing') return;
+  if (state.inventory.pause <= 0) return showFloatText('道具不足');
+  state.timeRemaining += 150;
+  state._initialTime += 150;
+  state.inventory.pause--;
+  renderHUD();
+  renderInventory();
+  showFloatText('⏱ +2:30');
+}
+
+function useRefresh() {
+  if (state.status !== 'playing' || state.isPaused || state.matching) return;
+  if (state.inventory.refresh <= 0) return showFloatText('道具不足');
+
+  // 收集所有 kind（保留每瓶的批次大小，只打乱颜色）
+  const kindPool = [];
+  state.vases.forEach(v => {
+    v.flowers.forEach(f => kindPool.push(f.kind));
+    v.nextBatch.forEach(f => kindPool.push(f.kind));
+    v.queuedBatches.forEach(b => b.forEach(f => kindPool.push(f.kind)));
+  });
+  shuffle(kindPool);
+
+  // 重新填回，保留每个批次的"大小"和每瓶的位置/刷新次数
+  let p = 0;
+  state.vases.forEach(v => {
+    const fSize = v.flowers.length;
+    const nSize = v.nextBatch.length;
+    const qSizes = v.queuedBatches.map(b => b.length);
+
+    v.flowers   = kindPool.slice(p, p + fSize).map(k => ({ id: uid(), kind: k })); p += fSize;
+    v.nextBatch = kindPool.slice(p, p + nSize).map(k => ({ id: uid(), kind: k })); p += nSize;
+    v.queuedBatches = qSizes.map(sz => {
+      const b = kindPool.slice(p, p + sz).map(k => ({ id: uid(), kind: k }));
+      p += sz; return b;
+    });
+  });
+
+  // 修正 3-same
+  const allBatches = [];
+  state.vases.forEach(v => {
+    if (v.flowers.length) allBatches.push(v.flowers);
+    if (v.nextBatch.length) allBatches.push(v.nextBatch);
+    v.queuedBatches.forEach(b => { if (b.length) allBatches.push(b); });
+  });
+  fixAll3SameBatches(allBatches);
+
+  state.inventory.refresh--;
+  showFloatText('🔀 已重排');
+  render();
+}
+
+// ======== Pause ========
+document.getElementById('btn-pause').addEventListener('click', () => {
+  if (state.status !== 'playing') return;
+  state.isPaused = !state.isPaused;
+  document.getElementById('btn-pause').textContent = state.isPaused ? '▶' : '⏸';
+});
+
+// ======== Dialog buttons ========
+document.getElementById('dlg-next').addEventListener('click', () => {
+  document.getElementById('dialog').classList.remove('show');
+  const next = state.status === 'won' ? state.level + 1 : state.level;
+  initLevel(next);
+});
+document.getElementById('dlg-restart').addEventListener('click', () => {
+  document.getElementById('dialog').classList.remove('show');
+  initLevel(state.level);
+});
+
+// expose for debug
+window.__state = state;
+window.__init  = initLevel;
+window.__gen   = generateLevelConfig;
+
+// ======== Boot ========
+initLevel(1);
+</script>
+</body>
+</html>
