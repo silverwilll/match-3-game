@@ -704,16 +704,16 @@ function completeMove(fromId, flowerIdx, toId) {
   rerenderVase(from);
   rerenderVase(to);
 
-  // 1) 目标瓶检查三同款
+  // 1) 源瓶若空 → 刷新（无论目标瓶是否三消，都需检查）
+  if (from.flowers.length === 0 && from.refreshCount > 0) {
+    setTimeout(() => triggerRefresh(from), 350);
+  }
+
+  // 2) 目标瓶检查三同款
   const matched = to.flowers.length === 3 && to.flowers.every(f => f.kind === to.flowers[0].kind);
   if (matched) {
     triggerMatch(to);
-    return; // refresh / source-refresh 由 triggerMatch 内部 chain
-  }
-
-  // 2) 源瓶若空 → 刷新
-  if (from.flowers.length === 0 && from.refreshCount > 0) {
-    setTimeout(() => triggerRefresh(from), 350);
+    return;
   }
 
   setTimeout(() => {
